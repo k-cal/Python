@@ -2,7 +2,10 @@
 # some data structure practice
 from typing import *
 from enum import IntEnum
+from random import random
 
+## Linked Lists to HashMap
+# (HashMap doesn't need to be connected to Linked Lists, but this one is)
 
 #basic node classes are more like structs than classes
 class Node: # basest node for linking
@@ -12,19 +15,799 @@ class Node: # basest node for linking
 
 
 class TwoWayNode(Node): # for double links
-    # inherits from Node spiritually but doesn't super
     def __init__(self, data=None, 
             next:'TwoWayNode'=None, prev:'TwoWayNode'=None):
-        self.data = data
-        self.next = next
+        super().__init__(data, next)
         self.prev = prev
 
 
+class SkipNode(Node):
+    # inherits from Node only spiritually ('next' no longer exists)
+    # key exists because presumably k->v is goal if searching by sorted key
+    def __init__(self, key, val, level_count:int):
+        self.data = (key, val)
+        self.next_list:List[SkipNode] = [None] * level_count
+
+    # for backwards compatibility with standard Node
+    @property
+    def next(self):
+        return None if len(self.next_list) < 1 else self.next_list[0]
+
+    @property
+    def key(self):
+        return self.data[0]
+
+    @property
+    def value(self):
+        return self.data[1]
+
+
+class LTSentinel:
+    '''compares to less than everything'''
+    def __repr__(self):
+        return 'LTSentinel'
+
+    def __lt__(self, other):
+        return type(other) is not LTSentinel
+
+    def __le__(self, other):
+        return True
+
+    def __eq__(self, other):
+        return type(other) is LTSentinel
+
+    def __ge__(self, other):    
+        return type(other) is LTSentinel
+
+    def __gt__(self, other):
+        return False
+
+
+class GTSentinel:
+    '''compares to greater than everything'''
+    def __repr__(self):
+        return 'GTSentinel'
+
+    def __lt__(self, other):
+        return False
+
+    def __le__(self, other):
+        return type(other) is GTSentinel
+
+    def __eq__(self, other):
+        return type(other) is GTSentinel
+
+    def __ge__(self, other):
+        return True
+
+    def __gt__(self, other):
+        return type(other) is not GTSentinel
+
+
+class LinkedList: # single link
+    def __init__(self):
+        self.head = self.tail = None
+        self._count = 0
+
+    def __len__(self) -> int:
+        return self._count
+
+    # makes HashMap easier but breaks abstraction
+    def _find_node(self, test_fnc:Callable[[], bool]) -> Node:
+        '''returns first node (node, not data) satisfying test_fnc'''
+        cur = self.head
+        while cur is not None:
+            if test_fnc(cur):
+                break
+            cur = cur.next
+        return cur
+
+    def insert_head(self, data):
+        new_node = Node(data=data)
+        if self.head is None:
+            self.head = self.tail = new_node
+            return new_node
+        new_node.next = self.head
+        self.head = new_node
+
+    def insert_tail(self, data):
+        if self.head is None:
+            return self.insert_head(data)
+        self.tail.next = Node(data)
+        self.tail = self.tail.next
+
+    # no pop-tail because inefficient (should use doubly linked for that)
+    # pops return values (data) not nodes to keep up the abstraction
+    def pop_head(self):
+        if self.head is None:
+            return None
+        poppy = self.head.data
+        self.head = self.head.next
+        if self.head is None:
+            self.tail = None
+        # poppy's node should be deallocated here but not done in python
+        return poppy
+
+    def to_list(self) -> list:
+        arr = []
+        cur = self.head
+        while cur is not None:
+            arr.append(cur.data)
+            cur = cur.next
+        return arr
+
+    def find(self, test_fnc:Callable[[], bool]):
+        '''
+        returns data for first node satisfying test_fnc
+        (test_fnc called on nodes, not node data)
+        '''
+        cur = self._find_node(test_fnc)
+        return None if cur is None else cur.data
+
+    # not sure if this should be supported operation for linked lists,
+    # but it will make hashmaps easier
+    def remove(self, test_fnc:Callable[[], bool]):
+        '''removes and returns data for first node satisfying test_fnc'''
+        if self.head is None:
+            return None
+        cur = self.head
+        found = None
+        if test_fnc(cur):
+            found = cur.data
+            self.head = cur.next
+            # deallocate cur
+            return found
+        while cur.next is not None:
+            if test_fnc(cur.next):
+                found = cur.next.data
+                new_next = cur.next.next
+                # deallocate cur.next
+                cur.next = new_next
+                if cur.next is None:
+                    self.tail = cur
+                break
+            cur = cur.next
+        return found
+
+    def __str__(self, joiner:str=' -> ') -> str:
+        cur = self.head
+        node_datums = []
+        while cur is not None:
+            node_datums.append(str(cur.data))
+            cur = cur.next
+        node_datums.append('None')
+        return joiner.join(node_datums)
+
+
+class DoubleLinkedList(LinkedList):
+    # currently unused, hashmaps use single links
+    def __init__(self):
+        super().__init__()
+
+    def insert_head(self, data):
+        new_node = TwoWayNode(data=data)
+        if self.head is None:
+            self.head = self.tail = new_node
+            return new_node
+        self.head.prev = new_node
+        new_node.next = self.head
+        self.head = new_node
+
+    def insert_tail(self, data):
+        if self.head is None:
+            return self.insert_head(data)
+        new_node = TwoWayNode(data=data)
+        self.tail.next = new_node
+        new_node.prev = self.tail
+        self.tail = new_node
+
+    def pop_head(self):
+        old_head_data = super().pop_head()
+        if self.head is not None:
+            self.head.prev = None
+        return old_head_data
+
+    def pop_tail(self):
+        if self.head == self.tail: # simplifying logic a bit
+            return self.pop_head()
+        poppy = self.tail.data
+        self.tail = self.tail.prev
+        self.tail.next = None
+        # poppy's node should be deallocated
+        return poppy
+
+    def remove(self, test_fnc:Callable[[], bool]):
+        '''removes and returns data for first node satisfying test_fnc'''
+        if self.head is None:
+            return None
+        cur = self.head
+        found = None
+        if test_fnc(cur):
+            found = cur.data
+            self.head = cur.next
+            # deallocate cur
+            return found
+        while cur.next is not None:
+            if test_fnc(cur.next):
+                found = cur.next.data
+                new_next = cur.next.next
+                # deallocate cur.next
+                cur.next = new_next
+                if cur.next is None:
+                    self.tail = cur
+                else:
+                    cur.next.prev = cur
+                break
+            cur = cur.next
+        return found
+
+    def __str__(self, joiner = ' <-> '):
+        return super().__str__(joiner)
+
+
+class SkipList(LinkedList):
+    '''
+    implementation uses sentinels that are less than or greater than everything
+    (head less than everything, tail greater than everything)
+    '''
+    def __init__(self, level_gen_probability=0.5):
+        # infinite leveling would be really bad, so we raise LevelError
+        if level_gen_probability >= 1:
+            raise ValueError('Level probability must be less than 1')
+        # head and tail are fixed sentinels now;
+        # level count is not stored directly in list, checked by checking _s_head
+        # (if limiting levels, need to add argument to init _s_head next_list size)
+        self._s_head = SkipNode(LTSentinel(), None, 1)
+        self._s_tail = SkipNode(GTSentinel(), None, 0)
+        # for compatibility with LinkedList, node before _s_tail gets special reference
+        self._non_s_tail:Optional[SkipNode] = None
+        self._s_head.next_list[0] = self._s_tail
+        self.level_p = level_gen_probability
+        self._count = 0
+
+    def determine_levels(self) -> int:
+        # infinite leveling would still be really bad, so we raise LevelError here too
+        # (just in case user needed to change level_p after initialisation)
+        if self.level_p >= 1:
+            raise ValueError('Level probability must be less than 1')
+        count = 1
+        # continuous random distribution means < and <= are essentially the same
+        while random() <= self.level_p: 
+            # and count < len(self._s_head.next_list): # for max level limiting
+            count += 1
+        return count
+
+    # for compatibility with LinkedList, but not really used
+    @property
+    def head(self) -> Optional[SkipNode]:
+        return None if self._s_head.next_list[0] is self._s_tail else self._s_head.next_list[0]
+
+    @property
+    def tail(self) -> Optional[SkipNode]:
+        # may return None
+        return self._non_s_tail
+
+    # added to override default LinkedList with exceptions
+    def insert_head(self, key):
+        '''skip list is sorted list, so no head/tail specific inserts'''
+        raise NotImplementedError
+
+    def insert_tail(self, key):
+        '''skip list is sorted list, so no head/tail specific inserts'''
+        raise NotImplementedError
+
+    def _find_preds_before_dup(self, key) -> List[SkipNode]:
+        '''
+        returns list of last-seen nodes per level on way to finding key
+        (path stops before duplicates)
+        '''
+        last_per_level = [None] * len(self._s_head.next_list)
+        level = len(last_per_level) - 1
+        cur:Optional[SkipNode] = self._s_head
+        # loop condition holds but not really used; break is what exits loop
+        while cur.key < key:
+            next:SkipNode = cur.next_list[level]
+            # dups come after new identical key in this method
+            if next.key < key:
+                cur = next
+            elif level > 0: # and next.key >= key
+                last_per_level[level] = cur
+                level -= 1
+            else: # next.key >= key and level == 0
+                last_per_level[0] = cur
+                break
+        return last_per_level
+
+    def _find_preds_after_dup(self, key) -> List[SkipNode]:
+        '''
+        returns list of last-seen nodes per level on way to finding key
+        (path stops after duplicates)
+        '''
+        last_per_level = [None] * len(self._s_head.next_list)
+        level = len(last_per_level) - 1
+        cur:Optional[SkipNode] = self._s_head
+        while cur.key <= key:
+            next:SkipNode = cur.next_list[level]
+            # dups come before new identical key in this method
+            if next.key <= key:
+                cur = next
+            elif level > 0: # and next.key > key
+                last_per_level[level] = cur
+                level -= 1
+            else: # next.key > key and level == 0
+                last_per_level[0] = cur
+                break
+        return last_per_level
+
+    def insert(self, key, val):
+        preds:List[SkipNode] = self._find_preds_after_dup(key)
+        levels_used = self.determine_levels()
+        new_node = SkipNode(key, val, levels_used)
+        # if levels exceed original max, increase pointers from _s_head
+        while levels_used > len(preds):
+            # create new head -> tail pointers (that will be overwritten in next loop)
+            self._s_head.next_list.append(self._s_tail)
+            preds.append(self._s_head)
+        for level in range(levels_used):
+            new_node.next_list[level] = preds[level].next_list[level]
+            preds[level].next_list[level] = new_node
+        if new_node.next_list[0] is self._s_tail:
+            self._non_s_tail = new_node
+        self._count += 1
+
+    def _find_with_preds(self, key) -> Tuple[Optional[SkipNode], List[SkipNode]]:
+        if self._count == 0:
+            return (None, [])
+        preds:List[SkipNode] = self._find_preds_before_dup(key)
+        if preds[0].next_list[0].key != key:
+            return (None, [])
+        cur = preds[0].next_list[0]
+        return (cur, preds)
+
+    def find(self, key) -> Tuple[Any, Any]:
+        cur, preds = self._find_with_preds(key)
+        if cur is None:
+            return (None, None)
+        return cur.val
+
+    def remove(self, key):
+        cur, preds = self._find_with_preds(key)
+        if cur is None:
+            return (None, None)
+        for level in range(len(preds)):
+            if preds[level].next_list[level] is cur:
+                preds[level].next_list[level] = cur.next_list[level]
+        self._count -= 1
+        if cur is self._non_s_tail and self._count > 0:
+            self._non_s_tail = preds[0]
+        # shrink level list of _s_head if possible
+        level_limit = len(self._s_head.next_list)
+        # > 1 because we want at least 1 pointer leaving from _s_head
+        while (self._s_head.next_list[level_limit - 1] == self._s_tail
+                and level_limit > 1):
+            level_limit -= 1
+        self._s_head.next_list = self._s_head.next_list[:level_limit]
+        # deallocate cur
+        return cur.data # data is (k,v) tuple
+
+    def pop_head(self) -> Optional[SkipNode]:
+        # possible, but probably not best idea for a skip list
+        if self._count == 0:
+            return None
+        poppy:SkipNode = self._s_head.next_list[0]
+        level_limit = len(self._s_head.next_list)
+        for level in range(level_limit - 1, -1, -1):
+            if self._s_head.next_list[level] is poppy:
+                self._s_head.next_list[level] = poppy.next_list[level]
+            if self._s_head.next_list[level] is self._s_tail:
+                level_limit -= 1
+        self._s_head.next_list = self._s_head.next_list[:max(level_limit, 1)]
+        self._count -= 1
+        return poppy.data
+
+    def __str__(self, joiner:str=' -> ') -> str:
+        cur = self._s_head
+        node_datums = []
+        # _s_head has special formatting
+        node_datums.append(f'({str(cur.key)})[{len(cur.next_list)}]')
+        cur = cur.next_list[0]
+        while cur is not self._s_tail:
+            node_datums.append(f'({str(cur.key)}, {str(cur.value)})[{sum(node is not None for node in cur.next_list)}]')
+            cur = cur.next_list[0]
+        # _s_tail has same special formatting
+        node_datums.append(f'({str(cur.key)})[{len(cur.next_list)}]')
+        return joiner.join(node_datums)
+
+    def level_path(self, level=0, joiner:str=' -> ') -> str:
+        '''
+        like calling str() but for a specified level;
+        uses 0-indexing so max level is 1 less than 
+        what appears next to _s_head when calling str()
+        '''
+        cur = self._s_head
+        node_datums = []
+        # _s_head has special formatting
+        node_datums.append(f'({str(cur.key)})')
+        cur = cur.next_list[level]
+        while cur is not self._s_tail:
+            node_datums.append(f'({str(cur.key)}, {str(cur.value)})')
+            cur = cur.next_list[level]
+        # _s_tail has same special formatting
+        node_datums.append(f'({str(cur.key)})')
+        return joiner.join(node_datums)
+
+    def to_list(self):
+        # exists just to remove sentinel from end
+        return super().to_list()[:-1]
+
+
+class HashMap: # also known as worse dict
+    # k->v pairs will be tuples of (k, v) and accessed by index accordingly
+    # (avoiding namedtuple overhead, though enums may have greater overhead)
+    # key needs to be hashable with default Python hash
+    def __init__(self, initial_size:int = 10, 
+            hashfnc:Callable[[], int] = hash, resize_scalar=2):
+        self.hashfnc = hashfnc
+        self.array:List[Optional[LinkedList]] = initial_size * [None]
+        self._count = 0
+        self.resize_scalar = resize_scalar
+
+    def __len__(self) -> int:
+        return self._count
+
+    # standard python methods for more dict-like usage
+    # (calling nonstandard methods for now)
+    def __setitem__(self, key, value):
+        self.set(key, value)
+
+    def __getitem__(self, key):
+        return self.get(key)
+
+    def __delitem__(self, key):
+        self.remove(key)
+
+    # for internal use during resize
+    def _add(self, key, value, array:List[Optional[LinkedList]]): 
+        idx = self.hashfnc(key) % len(array)
+        if array[idx] is None:
+            new_link = LinkedList()
+            new_link.insert_head((key, value))
+            array[idx] = new_link
+        else:
+            # head or tail is fine, but acting stacky
+            array[idx].insert_head((key, value))
+
+    def _get_node(self, key):
+        idx = self.hashfnc(key) % len(self.array)
+        if self.array[idx] is not None:
+            return self.array[idx]._find_node(lambda node: node.data[0] == key)
+        return None
+
+    def _size_up(self):
+        new_array = [None] * (len(self.array) * 2)
+        for idx in range(len(self.array)):
+            if self.array[idx] is not None:
+                cur = self.array[idx].head
+                while cur is not None:
+                    self._add(cur.data[0], cur.data[1], new_array)
+                    cur = cur.next
+        self.array = new_array
+    # not sure if it makes sense to make a size_down
+
+    def set(self, key, value):
+        # check if node exists
+        found = self._get_node(key)
+        if found:
+            # replace if exists
+            found.data = (key, value)
+        else:
+            # resize before adding because no need to double add new thing
+            if self._count + 1 > len(self.array) * self.resize_scalar:
+                self._size_up()
+            self._add(key, value, self.array)
+            self._count += 1
+
+    def get(self, key):
+        '''returns None if not found rather than raising exception'''
+        found = self._get_node(key)
+        return None if found is None else found.data[1]
+
+    def remove(self, key):
+        '''
+        pops value if found, returns None if not found
+        (doesn't return nodes)
+        '''
+        idx = self.hashfnc(key) % len(self.array)
+        if self.array[idx] is not None:
+            found_data = self.array[idx].remove(lambda data: data[0] == key)
+            if found_data is not None:
+                self._count -= 1
+                if self.array[idx].head is None:
+                    # deallocate unused linkedlist
+                    self.array[idx] = None
+                return found_data[1]
+        return None
+
+    def array_strings(self) -> List[str]:
+        '''
+        returns array of strings instead of single string,
+        but __str__ works correctly with single string
+        '''
+        return [str(element) for element in self.array]
+
+    def __str__(self) -> str:
+        return f'[{"; ".join(self.array_strings())}]'
+
+# A map with balanced BST might perform better than linked-list on average,
+# but trees and nodes take up more space than linked list;
+# (code could be mostly reused but the string depiction wouldn't work as is)
+
+## Trees and tree accessories
+# string depiction methods are no longer included 
+# because trees don't fit as well into a linear format
+# (heap array could be shown as-is, but that doesn't show tree structure well)
+
+# MinHeap is up first because it doesn't require Node classes
+class MinHeap:
+    # not as straightforward as previous structures;
+    # need a complete tree, so use array as storage
+    # with children of node n at node (2n + 1, 2n + 2)
+    # values stored with order-stamp as (value, stamp) in tuple,
+    # need to index properly when returning values
+    def __init__(self, initial_height=2):
+        self.height = initial_height
+        if self.height < 1:
+            raise ValueError("Initial height can't be below 1")
+        self.array = [None] * (2 ** self.height - 1)
+        self.first_empty_idx = self.next_stamp = 0
+
+    def __len__(self) -> int:
+        # taking advantage of 0-indexing
+        return self.first_empty_idx
+    
+    @staticmethod
+    def _left_child_idx(idx:int) -> int:
+        return 2 * idx + 1
+
+    @staticmethod
+    def _right_child_idx(idx:int) -> int:
+        return 2 * idx + 2
+
+    @staticmethod
+    def _parent_idx(idx:int) -> int:
+        if idx < 1:
+            return None  # don't be trying to parent the root
+        return (idx - 1) // 2
+
+    def _size_up(self):
+        self.array += [None] * (2 ** self.height)
+        self.height += 1
+    # not sure if it makes sense to make a size_down
+
+    def _heap_up(self, idx):
+        parent_idx = self._parent_idx(idx)
+        while parent_idx is not None:
+            if self.array[parent_idx] <= self.array[idx]:
+                break # stop heaping up if bigger than parent
+            temp = self.array[idx] # using temp to stay under 80char width
+            self.array[idx] = self.array[parent_idx]
+            self.array[parent_idx] = temp
+            idx = parent_idx
+            parent_idx = self._parent_idx(idx)
+            
+    def _heap_down(self, idx):
+        # probably shouldn't be called on any idx besides 0,
+        # but the logic would work even on other idx
+        left_idx = self._left_child_idx(idx)
+        right_idx = self._right_child_idx(idx)
+        small_idx = idx  # to make loop logic easier to follow
+        while left_idx < self.first_empty_idx:
+            if self.array[left_idx] < self.array[small_idx]:
+                small_idx = left_idx
+            if (right_idx < self.first_empty_idx and 
+                    self.array[right_idx] <= self.array[small_idx]):
+                small_idx = right_idx
+            if small_idx == idx:
+                break # didn't need to heap down, so we're done
+            temp = self.array[idx]
+            self.array[idx] = self.array[small_idx]
+            self.array[small_idx] = temp
+            idx = small_idx
+            left_idx = self._left_child_idx(idx)
+            right_idx = self._right_child_idx(idx)
+
+    def push(self, value):
+        # for priority queues, just use tuple (key, actual_data);
+        # internally, using (value, stamp) for tiebreaking
+        if self.first_empty_idx >= len(self.array):
+            self._size_up()
+        self.array[self.first_empty_idx] = (value, self.next_stamp)
+        self.next_stamp += 1
+        self.first_empty_idx += 1
+        self._heap_up(self.first_empty_idx - 1)
+
+    def pop(self):
+        if self.first_empty_idx == 0:
+            return None
+        smallest = self.array[0]
+        self.array[0] = self.array[self.first_empty_idx - 1]
+        self.array[self.first_empty_idx - 1] = None
+        self.first_empty_idx -= 1
+        self._heap_down(0)
+        return smallest[0]
+
+    def peek(self):
+        return self.array[0]
+
+    def _swap_top_and_heap_down(self, value):
+        smallest = self.array[0]
+        self.array[0] = (value, self.next_stamp)
+        self.next_stamp += 1
+        self._heap_down(0)
+        return smallest[0]
+    
+    def push_pop(self, value):
+        '''push then pop'''
+        # because it could be faster than push() -> pop()
+        if (self.first_empty_idx == 0 or
+                (value, self.next_stamp) < self.array[0]):
+            return value  # new value is smaller, nothing to push
+        return self._swap_top_and_heap_down(value)
+
+    def pop_push(self, value):
+        '''pop then push'''
+        # again, because it could be faster
+        if self.first_empty_idx == 0:
+            self.push(value)  # normal push because nothing to pop
+            return None
+        return self._swap_top_and_heap_down(value)
+
+
+class TrieNode:
+    def __init__(self, key='', value=None):
+        self.key = key
+        self.value = value
+        self.children = {}
+        # storing children as a dict might make one of the 
+        # possible use-cases of a Trie fail conceptually:
+        # Tries can be fast hashless k->v storage since prefix-keys
+        # makes storage and lookups reasonable in O(key-length) time;
+        # essentially, they're hash-maps without hash functions;
+        # having a dict here inside the node makes this use-case impossible
+        # because dicts are hash-maps;
+
+        # using lists to store children (and slotting children in sorted order)
+        # would avoid this hashing requirement but also slow things down
+        # since efficient hash functions are faster than reading through
+        # list to find insertion point, even with binary search
+
+
+# Tries before standard binary trees because not as connected
+# (similar reasoning for MinHeap being declared even higher up)
+class Trie:
+    # keys should be strings because traversal is char by char
+    def __init__(self):
+        self.root = TrieNode()
+        self._count = 0  # counts values, not nodes
+        self._node_count = 1 # mostly for dev sanity
+
+    def __len__(self):
+        '''counts unique values stored in trie, not nodes'''
+        return self._count
+
+    def node_count(self):
+        '''counts nodes in trie, not values stored'''
+        return self._node_count
+
+    def set(self, key:str, value):
+        if value is None:
+            raise ValueError('Cannot store None in trie')
+        node = self.root
+        for char in key:
+            next_node = node.children.get(char)
+            if next_node is None:
+                self._node_count += 1
+                node.children[char] = TrieNode(char)
+                next_node = node.children[char]
+            node = next_node
+        if node.value is None:
+            # setting value to None will ruin this sentinel
+            self._count += 1
+        node.value = value
+
+    def _get_node(self, key:str) -> Optional[TrieNode]:
+        '''
+        returns node if found
+        '''
+        node = self.root
+        for char in key:
+            next_node = node.children.get(char)
+            if next_node is None:
+                return None
+            node = next_node
+        return node
+
+    def _get_node_with_path(self, key:str) -> \
+            Tuple[Optional[TrieNode], List[TrieNode]]:
+        '''
+        returns node with path to node if found
+        (use path after deletions to clean up unused nodes)
+
+        like tree path traversals for BSTs, path is empty if node not found
+        (assumption is path not needed)
+        '''
+        node = self.root
+        node_path:List[TrieNode] = [self.root]
+        for char in key:
+            next_node = node.children.get(char)
+            if next_node is None:
+                return None, []
+            node = next_node
+            node_path.append(node)
+        return node, node_path
+
+    def get(self, key:str) -> Any:
+        node = self._get_node(key)
+        return None if node is None else node.value
+
+    def remove(self, key:str) -> Any:
+        '''
+        pops value if found, None if not found
+        (doesn't return nodes)
+        '''
+        node, path = self._get_node_with_path(key)
+        if node is None:
+            return None
+        pop_val = node.value
+        if len(node.children) == 0:
+            safe_to_remove = True
+            # if node is safe to remove, 
+            # go back up trie to see what else can be removed
+            for idx in range(len(path) - 2, -1, -1):
+                if not safe_to_remove:
+                    break
+                cur = path[idx]
+                cur.children.pop(path[idx + 1].key)
+                # popped node should be deallocated
+                self._node_count -= 1
+                safe_to_remove = len(cur.children) == 0
+            # root may be safe_to_remove, but never actually removed
+        self._count -= 1
+        return pop_val
+
+    def all_vals(self):
+        '''
+        traverses and creates dict with all k->v pairs
+
+        (not actually all that useful as hash-map replacement, but allows
+        quick view of everything stored in trie)
+        '''
+        node_stack = [self.root]
+        char_stack = []
+        pairs = {}
+        visited = set()
+        while len(node_stack) > 0:
+            cur = node_stack[-1]
+            if cur in visited:
+                node_stack.pop()
+                char_stack.pop()
+                continue
+            char_stack.append(cur.key)
+            node_stack.extend(cur.children.values())
+            # add values() because we want node objects, not their keys
+            if cur.value is not None:
+                pairs[''.join(char_stack)] = cur.value
+            visited.add(cur)
+        return pairs
+
+
+# Simple left/right enum so we can use some (1 - direction) logic
 class BiDirect(IntEnum):
     LEFT = 0
     RIGHT = 1
 
 
+# Base node that isn't used for balanced trees
 class BTNode:
     def __init__(self, key=None, data=None, 
             left:'BTNode'=None, right:'BTNode'=None):
@@ -146,366 +929,13 @@ class BTCNode(BTNode):
                 child.color = not child.color
 
 
-class LinkedList: # single link
-    def __init__(self):
-        self.head = self.tail = None
-
-    # makes HashMap easier but breaks abstraction
-    def _find_node(self, test_fnc:Callable[[], bool]) -> Node:
-        '''returns first node (node, not data) satisfying test_fnc'''
-        cur = self.head
-        while cur is not None:
-            if test_fnc(cur.data):
-                break
-            cur = cur.next
-        return cur
-
-    def insert_head(self, data):
-        new_node = Node(data=data)
-        if self.head is None:
-            self.head = self.tail = new_node
-            return new_node
-        new_node.next = self.head
-        self.head = new_node
-
-    def insert_tail(self, data):
-        if self.head is None:
-            return self.insert_head(data)
-        self.tail.next = Node(data)
-        self.tail = self.tail.next
-
-    # no pop-tail because inefficient (should use doubly linked for that)
-    # pops return values (data) not nodes to keep up the abstraction
-    def pop_head(self):
-        if self.head is None:
-            return None
-        poppy = self.head.data
-        self.head = self.head.next
-        if self.head is None:
-            self.tail = None
-        # poppy's node should be deallocated here but not done in python
-        return poppy
-
-    def to_list(self) -> list:
-        arr = []
-        cur = self.head
-        while cur is not None:
-            arr.append(cur.data)
-            cur = cur.next
-        return cur
-
-    def find(self, test_fnc:Callable[[], bool]):
-        '''returns data for first node satisfying test_fnc'''
-        cur = self._find_node(test_fnc)
-        return None if cur is None else cur.data
-
-    # not sure if this should be supported operation for linked lists,
-    # but it will make hashmaps easier
-    def remove(self, test_fnc:Callable[[], bool]):
-        '''removes and returns data for first node satisfying test_fnc'''
-        if self.head is None:
-            return None
-        cur = self.head
-        found = None
-        if test_fnc(cur.data):
-            found = cur.data
-            self.head = cur.next
-            # deallocate cur
-            return found
-        while cur.next is not None:
-            if test_fnc(cur.next.data):
-                found = cur.next.data
-                new_next = cur.next.next
-                # deallocate cur.next
-                cur.next = new_next
-                if cur.next is None:
-                    self.tail = cur
-                break
-            cur = cur.next
-        return found
-
-    def __str__(self) -> str:
-        cur = self.head
-        node_datums = []
-        while cur is not None:
-            node_datums.append(str(cur.data))
-            cur = cur.next
-        node_datums.append('None')
-        return ' -> '.join(node_datums)
-
-
-class DoubleLinkedList(LinkedList):
-    # currently unused, hashmaps use single links
-    def __init__(self):
-        super().__init__()
-
-    def insert_head(self, data):
-        new_node = TwoWayNode(data=data)
-        if self.head is None:
-            self.head = self.tail = new_node
-            return new_node
-        self.head.prev = new_node
-        new_node.next = self.head
-        self.head = new_node
-
-    def insert_tail(self, data):
-        if self.head is None:
-            return self.insert_head(data)
-        new_node = TwoWayNode(data=data)
-        self.tail.next = new_node
-        new_node.prev = self.tail
-        self.tail = new_node
-
-    def pop_head(self):
-        old_head_data = super().pop_head()
-        if self.head is not None:
-            self.head.prev = None
-        return old_head_data
-
-    def pop_tail(self):
-        if self.head == self.tail: # simplifying logic a bit
-            return self.pop_head()
-        poppy = self.tail.data
-        self.tail = self.tail.prev
-        self.tail.next = None
-        # poppy's node should be deallocated
-        return poppy
-
-    def remove(self, test_fnc:Callable[[], bool]):
-        '''removes and returns data for first node satisfying test_fnc'''
-        if self.head is None:
-            return None
-        cur = self.head
-        found = None
-        if test_fnc(cur.data):
-            found = cur.data
-            self.head = cur.next
-            # deallocate cur
-            return found
-        while cur.next is not None:
-            if test_fnc(cur.next.data):
-                found = cur.next.data
-                new_next = cur.next.next
-                # deallocate cur.next
-                cur.next = new_next
-                if cur.next is None:
-                    self.tail = cur
-                else:
-                    cur.next.prev = cur
-                break
-            cur = cur.next
-        return found
-
-
-class HashMap: # also known as worse dict
-    # k->v pairs will be tuples of (k, v) and accessed by index accordingly
-    # (avoiding namedtuple overhead, though enums may have greater overhead)
-    # key needs to be hashable with default Python hash
-    def __init__(self, initial_size:int = 10, 
-            hashfnc:Callable[[], int] = hash, resize_scalar=2):
-        self.hashfnc = hashfnc
-        self.array:List[Optional[LinkedList]] = initial_size * [None]
-        self._count = 0
-        self.resize_scalar = resize_scalar
-
-    def count(self):
-        return self._count
-
-    # for internal use during resize
-    def _add(self, key, value, array:List[Optional[LinkedList]]): 
-        idx = self.hashfnc(key) % len(array)
-        if array[idx] is None:
-            new_link = LinkedList()
-            new_link.insert_head((key, value))
-            array[idx] = new_link
-        else:
-            # head or tail is fine, but acting stacky
-            array[idx].insert_head((key, value))
-
-    def _get_node(self, key):
-        idx = self.hashfnc(key) % len(self.array)
-        if self.array[idx] is not None:
-            return self.array[idx]._find_node(lambda node: node[0] == key)
-        return None
-
-    def _size_up(self):
-        new_array = [None] * (len(self.array) * 2)
-        for idx in range(len(self.array)):
-            if self.array[idx] is not None:
-                cur = self.array[idx].head
-                while cur is not None:
-                    self._add(cur.data[0], cur.data[1], new_array)
-                    cur = cur.next
-        self.array = new_array
-    # not sure if it makes sense to make a size_down
-
-    def set(self, key, value):
-        # check if node exists
-        found = self._get_node(key)
-        if found:
-            # replace if exists
-            found.data = (key, value)
-        else:
-            # resize before adding because no need to double add new thing
-            if self._count + 1 > len(self.array) * self.resize_scalar:
-                self._size_up()
-            self._add(key, value, self.array)
-            self._count += 1
-
-    def get(self, key):
-        '''returns None if not found rather than raising exception'''
-        found = self._get_node(key)
-        return None if found is None else found.data[1]
-
-    def remove(self, key):
-        '''pops value if found, returns None if not found'''
-        idx = self.hashfnc(key) % len(self.array)
-        if self.array[idx] is not None:
-            found_data = self.array[idx].remove(lambda data: data[0] == key)
-            if found_data is not None:
-                self._count -= 1
-                if self.array[idx].head is None:
-                    # deallocate unused linkedlist
-                    self.array[idx] = None
-                return found_data[1]
-        return None
-
-    def array_strings(self):
-        '''
-        returns array of strings instead of single string,
-        but __str__ works correctly with single string
-        '''
-        return [str(element) for element in self.array]
-
-    def __str__(self):
-        return f'[{"; ".join(self.array_strings())}]'
-
-# A map with balanced BST might perform better than linked-list on average,
-# but trees and nodes take up more space than linked list;
-# (code could be mostly reused but the string depiction wouldn't work as is)
-
-# classes below are moving into tree territory; string depiction methods are
-# no longer included because trees don't fit as well into a linear format
-# (heap array could be shown as-is, but that doesn't show tree structure well)
-
-class MinHeap:
-    # not as straightforward as previous structures;
-    # need a complete tree, so use array as storage
-    # with children of node n at node (2n + 1, 2n + 2)
-    # values stored with order-stamp as (value, stamp) in tuple,
-    # need to index properly when returning values
-    def __init__(self, initial_height=2):
-        self.height = initial_height
-        if self.height < 1:
-            raise ValueError("Initial height can't be below 1")
-        self.array = [None] * (2 ** self.height - 1)
-        self.first_empty_idx = self.next_stamp = 0
-    
-    @staticmethod
-    def _left_child_idx(idx:int) -> int:
-        return 2 * idx + 1
-
-    @staticmethod
-    def _right_child_idx(idx:int) -> int:
-        return 2 * idx + 2
-
-    @staticmethod
-    def _parent_idx(idx:int) -> int:
-        if idx < 1:
-            return None  # don't be trying to parent the root
-        return (idx - 1) // 2
-
-    def _size_up(self):
-        self.array += [None] * (2 ** self.height)
-        self.height += 1
-    # not sure if it makes sense to make a size_down
-
-    def _heap_up(self, idx):
-        parent_idx = self._parent_idx(idx)
-        while parent_idx is not None:
-            if self.array[parent_idx] <= self.array[idx]:
-                break # stop heaping up if bigger than parent
-            temp = self.array[idx] # using temp to stay under 80char width
-            self.array[idx] = self.array[parent_idx]
-            self.array[parent_idx] = temp
-            idx = parent_idx
-            parent_idx = self._parent_idx(idx)
-            
-    def _heap_down(self, idx):
-        # probably shouldn't be called on any idx besides 0,
-        # but the logic would work even on other idx
-        left_idx = self._left_child_idx(idx)
-        right_idx = self._right_child_idx(idx)
-        small_idx = idx  # to make loop logic easier to follow
-        while left_idx < self.first_empty_idx:
-            if self.array[left_idx] < self.array[small_idx]:
-                small_idx = left_idx
-            if (right_idx < self.first_empty_idx and 
-                    self.array[right_idx] <= self.array[small_idx]):
-                small_idx = right_idx
-            if small_idx == idx:
-                break # didn't need to heap down, so we're done
-            temp = self.array[idx]
-            self.array[idx] = self.array[small_idx]
-            self.array[small_idx] = temp
-            idx = small_idx
-            left_idx = self._left_child_idx(idx)
-            right_idx = self._right_child_idx(idx)
-
-    def push(self, value):
-        # for priority queues, just use tuple (key, actual_data);
-        # internally, using (value, stamp) for tiebreaking
-        if self.first_empty_idx >= len(self.array):
-            self._size_up()
-        self.array[self.first_empty_idx] = (value, self.next_stamp)
-        self.next_stamp += 1
-        self.first_empty_idx += 1
-        self._heap_up(self.first_empty_idx - 1)
-
-    def pop(self):
-        if self.first_empty_idx == 0:
-            return None
-        smallest = self.array[0]
-        self.array[0] = self.array[self.first_empty_idx - 1]
-        self.array[self.first_empty_idx - 1] = None
-        self.first_empty_idx -= 1
-        self._heap_down(0)
-        return smallest[0]
-
-    def peek(self):
-        return self.array[0]
-
-    def _swap_top_and_heap_down(self, value):
-        smallest = self.array[0]
-        self.array[0] = (value, self.next_stamp)
-        self.next_stamp += 1
-        self._heap_down(0)
-        return smallest[0]
-    
-    def push_pop(self, value):
-        '''push then pop'''
-        # because it could be faster than push() -> pop()
-        if (self.first_empty_idx == 0 or
-                (value, self.next_stamp) < self.array[0]):
-            return value  # new value is smaller, nothing to push
-        return self._swap_top_and_heap_down(value)
-
-    def pop_push(self, value):
-        '''pop then push'''
-        # again, because it could be faster
-        if self.first_empty_idx == 0:
-            self.push(value)  # normal push because nothing to pop
-            return None
-        return self._swap_top_and_heap_down(value)
-
-
 # abstract class with simple methods to avoid duplicating for different trees
 class BinaryTree:
     def __init__(self):
         self.root = None
         self._count = 0
 
-    def count(self):
+    def __len__(self) -> int:
         return self._count
 
     # trees need add/remove to be useful but implementation depends on tree
@@ -599,7 +1029,7 @@ class BSTree(BinaryTree):
         return (cur, parent, d)
 
     def find_node_path(self, key) -> \
-                Tuple[List[BTNode], List[Optional[BiDirect]]]:
+            Tuple[List[BTNode], List[Optional[BiDirect]]]:
         '''
         returns list of nodes possibly ending with node having provided key
         (list is returned even if not found, so check last node in caller)
@@ -701,6 +1131,7 @@ class BSTree(BinaryTree):
         self._count -= 1
         return (cur.key, cur.data)
 
+
 class BalanceTree(BSTree):
     # abstract class to hold some common balancing operations
     # (with balancing method undefined, not useful to instantiate)
@@ -741,7 +1172,7 @@ class BalanceTree(BSTree):
             self._balance_fix(node_path[0], None, dir_path[0])
 
     def _add_node_and_get_path(self, new_node:BTNode) -> \
-                Tuple[List[BTNode], List[Optional[BiDirect]]]:
+            Tuple[List[BTNode], List[Optional[BiDirect]]]:
         '''
         helper method for subclasses to add node while recording path;
         if key exists, data is overwritten and new_node is discarded instead;
